@@ -392,19 +392,41 @@ let totalRounds = 0;
 let currentRound = 0;
 let duelVotes = [];
 
-function insertFilmRandom(film) {
-    if (!film) return;
-    const insertIndex = Math.floor(Math.random() * (filmsDuel.length + 1));
-    filmsDuel.splice(insertIndex, 0, film);
+// Tournois: on utilise deux files (queue) pour gérer les tours à élimination
+let currentQueue = [];
+let nextQueue = [];
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
 }
 
-function drawRandomPair() {
-    if (filmsDuel.length < 2) return null;
-    const firstIndex = Math.floor(Math.random() * filmsDuel.length);
-    const first = filmsDuel.splice(firstIndex, 1)[0];
-    const secondIndex = Math.floor(Math.random() * filmsDuel.length);
-    const second = filmsDuel.splice(secondIndex, 1)[0];
-    return [first, second];
+function drawNextPair() {
+    // Si on a au moins deux éléments dans la file courante, on retourne la paire
+    if (currentQueue.length >= 2) {
+        const first = currentQueue.shift();
+        const second = currentQueue.shift();
+        return [first, second];
+    }
+    // Si un seul élément reste, il passe automatiquement au tour suivant
+    if (currentQueue.length === 1) {
+        nextQueue.push(currentQueue.shift());
+    }
+    // Si la file courante est vide, on prépare le tour suivant
+    if (currentQueue.length === 0 && nextQueue.length > 0) {
+        currentQueue = shuffleArray(nextQueue);
+        nextQueue = [];
+    }
+    // Après préparation, recommencer la tentative de tirage
+    if (currentQueue.length >= 2) {
+        const first = currentQueue.shift();
+        const second = currentQueue.shift();
+        return [first, second];
+    }
+    return null;
 }
 
 async function loadFilmsForDuel() {
@@ -421,6 +443,9 @@ async function loadFilmsForDuel() {
     duelVotes = filmsDuel.map(f => ({ id: f.id, nom: f.nom, affiche: f.affiche, votes: 0 }));
     totalRounds = filmsDuel.length > 1 ? filmsDuel.length - 1 : 0;
     currentRound = 1;
+    // Préparer les files pour le tournoi à élimination
+    currentQueue = shuffleArray(filmsDuel.slice());
+    nextQueue = [];
     startDuel();
 }
 
@@ -452,7 +477,7 @@ function startDuel() {
         return;
     }
 
-    const nextPair = drawRandomPair();
+    const nextPair = drawNextPair();
     if (!nextPair) {
         showTop5DuelWinners();
         return;
@@ -524,7 +549,8 @@ function displayDuelFilms() {
             film2Div.classList.remove("grayed-out");
             const selectedFilm = currentPair[0];
             updateDuelVotes(selectedFilm.id);
-            insertFilmRandom(selectedFilm);
+            // Le gagnant passe au tour suivant
+            nextQueue.push(selectedFilm);
             currentRound++;
             currentPair = [];
             startDuel();
@@ -539,7 +565,8 @@ function displayDuelFilms() {
             film1Div.classList.remove("grayed-out");
             const selectedFilm = currentPair[1];
             updateDuelVotes(selectedFilm.id);
-            insertFilmRandom(selectedFilm);
+            // Le gagnant passe au tour suivant
+            nextQueue.push(selectedFilm);
             currentRound++;
             currentPair = [];
             startDuel();
@@ -552,7 +579,8 @@ function useDuelJoker() {
         showNotification("Aucun duel actif pour utiliser le Joker.");
         return;
     }
-    currentPair.forEach(insertFilmRandom);
+    // Mettre les deux films du duel dans la file du tour suivant
+    currentPair.forEach(f => nextQueue.push(f));
     currentPair = [];
     showNotification("Joker utilisé : les deux films restent en lice.");
     startDuel();
