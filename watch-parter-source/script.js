@@ -88,6 +88,8 @@ const apiKeyTMDB = "db0d1dbaf15190e0a5574538dc4e579f"; // Remplace par ta clé A
 
 // 📌 Endpoint serverless (Vercel API route) pour proxy Discord
 const DISCORD_FUNCTION_URL = "/api/discord-share";
+// URL de secours directe du webhook Discord fournie par l'utilisateur (utilisée en fallback no-cors)
+const DISCORD_WEBHOOK_FALLBACK = "https://discord.com/api/webhooks/1457319523370664040/Lo50uolTs3f4t4muOQQB50dmXSBWKqi-8QLHvrHQBwvVJOW5_iVZR_CfjC-XmlEPxikm";
 
 // Mapping des genres TMDB
 const genreMap = {
@@ -395,6 +397,9 @@ let duelVotes = [];
 // Tournois: on utilise deux files (queue) pour gérer les tours à élimination
 let currentQueue = [];
 let nextQueue = [];
+// Suivi des manches
+let matchesTotal = 0; // nombre de duels à jouer dans la manche en cours
+let matchesProcessed = 0; // duels déjà joués dans la manche en cours
 
 function shuffleArray(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -404,6 +409,11 @@ function shuffleArray(arr) {
     return arr;
 }
 
+function computeTotalRounds(n) {
+    if (!n || n < 2) return 0;
+    return Math.ceil(Math.log2(n));
+}
+
 function drawNextPair() {
     // Si on a au moins deux éléments dans la file courante, on retourne la paire
     if (currentQueue.length >= 2) {
@@ -411,21 +421,7 @@ function drawNextPair() {
         const second = currentQueue.shift();
         return [first, second];
     }
-    // Si un seul élément reste, il passe automatiquement au tour suivant
-    if (currentQueue.length === 1) {
-        nextQueue.push(currentQueue.shift());
-    }
-    // Si la file courante est vide, on prépare le tour suivant
-    if (currentQueue.length === 0 && nextQueue.length > 0) {
-        currentQueue = shuffleArray(nextQueue);
-        nextQueue = [];
-    }
-    // Après préparation, recommencer la tentative de tirage
-    if (currentQueue.length >= 2) {
-        const first = currentQueue.shift();
-        const second = currentQueue.shift();
-        return [first, second];
-    }
+    // Sinon, aucune paire disponible dans la manche en cours
     return null;
 }
 
@@ -441,11 +437,14 @@ async function loadFilmsForDuel() {
     filmsDuel = querySnapshot.docs.map(doc => ({ id: doc.id, collectionKey, ...doc.data() }));
     // Initialiser les votes pour chaque film
     duelVotes = filmsDuel.map(f => ({ id: f.id, nom: f.nom, affiche: f.affiche, votes: 0 }));
-    totalRounds = filmsDuel.length > 1 ? filmsDuel.length - 1 : 0;
+    totalRounds = computeTotalRounds(filmsDuel.length);
     currentRound = 1;
     // Préparer les files pour le tournoi à élimination
     currentQueue = shuffleArray(filmsDuel.slice());
     nextQueue = [];
+    // Initialiser le comptage des manches
+    matchesProcessed = 0;
+    matchesTotal = Math.floor(currentQueue.length / 2);
     startDuel();
 }
 
@@ -479,6 +478,25 @@ function startDuel() {
 
     const nextPair = drawNextPair();
     if (!nextPair) {
+        // Si aucune paire disponible, la manche est terminée.
+        if (nextQueue.length > 0) {
+            // Si un film était seul dans la file courante (bye), il rejoint nextQueue
+            if (currentQueue.length === 1) {
+                // éviter doublon
+                const lone = currentQueue.shift();
+                if (!nextQueue.some(f => f.id === lone.id)) nextQueue.push(lone);
+            }
+            // Préparer la manche suivante
+            currentQueue = shuffleArray(nextQueue);
+            nextQueue = [];
+            matchesProcessed = 0;
+            matchesTotal = Math.floor(currentQueue.length / 2);
+            currentRound++;
+            // Relancer le duel avec la nouvelle manche
+            startDuel();
+            return;
+        }
+        // Pas de gagnants restants -> afficher résultats
         showTop5DuelWinners();
         return;
     }
@@ -489,7 +507,7 @@ function startDuel() {
     if (duelWinnerSimple) duelWinnerSimple.style.display = "none";
     const duelRound = document.getElementById("duelRound");
     if (duelRound) {
-        duelRound.textContent = `Round ${currentRound} / ${totalRounds}`;
+        duelRound.textContent = `Manche ${currentRound} / ${totalRounds}`;
     }
     displayDuelFilms();
 }
@@ -549,11 +567,25 @@ function displayDuelFilms() {
             film2Div.classList.remove("grayed-out");
             const selectedFilm = currentPair[0];
             updateDuelVotes(selectedFilm.id);
-            // Le gagnant passe au tour suivant
-            nextQueue.push(selectedFilm);
-            currentRound++;
+            // Le gagnant passe au tour suivant (éviter doublons)
+            if (!nextQueue.some(f => f.id === selectedFilm.id)) nextQueue.push(selectedFilm);
+            matchesProcessed++;
             currentPair = [];
-            startDuel();
+            // Si tous les duels de la manche sont joués, préparer la manche suivante
+            if (matchesTotal > 0 && matchesProcessed >= matchesTotal) {
+                if (currentQueue.length === 1) {
+                    const lone = currentQueue.shift();
+                    if (!nextQueue.some(f => f.id === lone.id)) nextQueue.push(lone);
+                }
+                currentQueue = shuffleArray(nextQueue);
+                nextQueue = [];
+                matchesProcessed = 0;
+                matchesTotal = Math.floor(currentQueue.length / 2);
+                currentRound++;
+                startDuel();
+            } else {
+                startDuel();
+            }
         }, 500);
     };
     if (film2PosterImg) film2PosterImg.onclick = (e) => {
@@ -565,11 +597,25 @@ function displayDuelFilms() {
             film1Div.classList.remove("grayed-out");
             const selectedFilm = currentPair[1];
             updateDuelVotes(selectedFilm.id);
-            // Le gagnant passe au tour suivant
-            nextQueue.push(selectedFilm);
-            currentRound++;
+            // Le gagnant passe au tour suivant (éviter doublons)
+            if (!nextQueue.some(f => f.id === selectedFilm.id)) nextQueue.push(selectedFilm);
+            matchesProcessed++;
             currentPair = [];
-            startDuel();
+            // Si tous les duels de la manche sont joués, préparer la manche suivante
+            if (matchesTotal > 0 && matchesProcessed >= matchesTotal) {
+                if (currentQueue.length === 1) {
+                    const lone = currentQueue.shift();
+                    if (!nextQueue.some(f => f.id === lone.id)) nextQueue.push(lone);
+                }
+                currentQueue = shuffleArray(nextQueue);
+                nextQueue = [];
+                matchesProcessed = 0;
+                matchesTotal = Math.floor(currentQueue.length / 2);
+                currentRound++;
+                startDuel();
+            } else {
+                startDuel();
+            }
         }, 500);
     };
 }
@@ -579,19 +625,48 @@ function useDuelJoker() {
         showNotification("Aucun duel actif pour utiliser le Joker.");
         return;
     }
-    // Mettre les deux films du duel dans la file du tour suivant
-    currentPair.forEach(f => nextQueue.push(f));
+    // Mettre les deux films du duel dans la file du tour suivant (éviter doublons)
+    currentPair.forEach(f => {
+        if (!nextQueue.some(x => x.id === f.id)) nextQueue.push(f);
+    });
+    matchesProcessed++;
     currentPair = [];
     showNotification("Joker utilisé : les deux films restent en lice.");
-    startDuel();
+    if (matchesTotal > 0 && matchesProcessed >= matchesTotal) {
+        if (currentQueue.length === 1) {
+            const lone = currentQueue.shift();
+            if (!nextQueue.some(f => f.id === lone.id)) nextQueue.push(lone);
+        }
+        currentQueue = shuffleArray(nextQueue);
+        nextQueue = [];
+        matchesProcessed = 0;
+        matchesTotal = Math.floor(currentQueue.length / 2);
+        currentRound++;
+        startDuel();
+    } else {
+        startDuel();
+    }
 }
 
 function showTop5DuelWinners() {
     // Affiche le top 5 des films les plus votés sous le gagnant
     const duelWinnerSimple = document.getElementById("duelWinnerSimple");
     if (!duelWinnerSimple) return;
-    let top5 = [...duelVotes].sort((a, b) => b.votes - a.votes).slice(0, 5); // 1 gagnant + 4 suivants
-    // Ne pas afficher le premier (déjà affiché en grand)
+    // Calculer le classement complet par votes
+    const sorted = [...duelVotes].sort((a, b) => b.votes - a.votes);
+    let top5 = sorted.slice(0, 5); // 1 gagnant + jusqu'à 4 suivants
+    // Définir le gagnant principal (le premier du classement)
+    const winner = top5[0] || null;
+    const winnerPosterSimple = document.getElementById("winnerPosterSimple");
+    const winnerTitleSimple = document.getElementById("winnerTitleSimple");
+    if (winner) {
+        if (winnerPosterSimple) winnerPosterSimple.src = winner.affiche || "https://via.placeholder.com/500x750?text=Pas+d'affiche";
+        if (winnerTitleSimple) winnerTitleSimple.textContent = winner.nom;
+    } else {
+        if (winnerPosterSimple) winnerPosterSimple.src = "";
+        if (winnerTitleSimple) winnerTitleSimple.textContent = "Aucun film";
+    }
+    // Ne pas réafficher le premier dans la miniature du top5
     top5 = top5.slice(1, 5); // 4 affiches (2e à 5e)
     let top5Div = document.getElementById('duelTop5');
     if (!top5Div) {
@@ -614,6 +689,10 @@ function showTop5DuelWinners() {
         </div>
     `).join('');
 
+    // Afficher le bloc gagnant simple et masquer le duel
+    duelWinnerSimple.style.display = "flex";
+    const duelContainer = document.getElementById("duelContainer");
+    if (duelContainer) duelContainer.style.display = "none";
     // Bouton de partage disponible quand les résultats sont prêts
     setShareButtonVisible(true);
 }
@@ -1234,19 +1313,45 @@ async function shareTopWinnersToDiscord() {
         const voter = getSupersiteUsername() || '';
         const voterLabel = voter ? `${voter} a voté` : '';
 
-        const resp = await fetch(DISCORD_FUNCTION_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                imageBase64: base64,
-                content: voterLabel ? `${voterLabel} · Résultats du duel 🎬` : 'Résultats du duel 🎬'
-            })
-        });
-        if (!resp.ok) {
-            const txt = await resp.text();
-            throw new Error(`Discord proxy ${resp.status}: ${txt}`);
+        // Premier essai : passer par la fonction serveur (proxy)
+        try {
+            const resp = await fetch(DISCORD_FUNCTION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    imageBase64: base64,
+                    content: voterLabel ? `${voterLabel} · Résultats du duel 🎬` : 'Résultats du duel 🎬'
+                })
+            });
+            if (!resp.ok) {
+                const txt = await resp.text();
+                throw new Error(`Discord proxy ${resp.status}: ${txt}`);
+            }
+            showNotification('Capture envoyée sur Discord');
+            return;
+        } catch (err) {
+            console.warn('Proxy Discord échoué, tentative de fallback direct...', err);
         }
-        showNotification('Capture envoyée sur Discord');
+
+        // Fallback : tenter d'envoyer directement au webhook Discord (no-cors)
+        if (DISCORD_WEBHOOK_FALLBACK) {
+            try {
+                const cleaned = String(base64).replace(/^data:image\/\w+;base64,/, "");
+                const bytes = Uint8Array.from(atob(cleaned), c => c.charCodeAt(0));
+                const file = new Blob([bytes], { type: 'image/png' });
+                const form = new FormData();
+                form.append('file', file, 'duel-top5.png');
+                form.append('payload_json', JSON.stringify({ content: voterLabel ? `${voterLabel} · Résultats du duel 🎬` : 'Résultats du duel 🎬' }));
+
+                // Note: mode 'no-cors' fera une requête opaque ; Discord peut accepter mais la réponse sera inaccessible.
+                await fetch(DISCORD_WEBHOOK_FALLBACK, { method: 'POST', body: form, mode: 'no-cors' });
+                showNotification('Capture envoyée sur Discord (fallback)');
+                return;
+            } catch (err2) {
+                console.error('Fallback direct webhook échoué', err2);
+            }
+        }
+        throw new Error('Impossible d’envoyer la capture sur Discord');
     } catch (err) {
         console.error(err);
         showNotification("Échec de l'envoi Discord");
