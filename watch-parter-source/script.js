@@ -455,7 +455,6 @@ function startDuel() {
     // Nouveau bloc gagnant minimaliste
     const duelWinnerSimple = document.getElementById("duelWinnerSimple");
     const winnerPosterSimple = document.getElementById("winnerPosterSimple");
-    const winnerTitleSimple = document.getElementById("winnerTitleSimple");
 
     // Masquer le bouton de partage tant qu'il n'y a pas de gagnant final
     setShareButtonVisible(false);
@@ -467,10 +466,8 @@ function startDuel() {
         const winner = filmsDuel[0];
         if (winner) {
             if (winnerPosterSimple) winnerPosterSimple.src = winner.affiche || "https://via.placeholder.com/500x750?text=Pas+d'affiche";
-            if (winnerTitleSimple) winnerTitleSimple.textContent = winner.nom;
         } else {
             if (winnerPosterSimple) winnerPosterSimple.src = "";
-            if (winnerTitleSimple) winnerTitleSimple.textContent = "Aucun film";
         }
         showTop5DuelWinners();
         return;
@@ -658,13 +655,10 @@ function showTop5DuelWinners() {
     // Définir le gagnant principal (le premier du classement)
     const winner = top5[0] || null;
     const winnerPosterSimple = document.getElementById("winnerPosterSimple");
-    const winnerTitleSimple = document.getElementById("winnerTitleSimple");
     if (winner) {
         if (winnerPosterSimple) winnerPosterSimple.src = winner.affiche || "https://via.placeholder.com/500x750?text=Pas+d'affiche";
-        if (winnerTitleSimple) winnerTitleSimple.textContent = winner.nom;
     } else {
         if (winnerPosterSimple) winnerPosterSimple.src = "";
-        if (winnerTitleSimple) winnerTitleSimple.textContent = "Aucun film";
     }
     // Ne pas réafficher le premier dans la miniature du top5
     top5 = top5.slice(1, 5); // 4 affiches (2e à 5e)

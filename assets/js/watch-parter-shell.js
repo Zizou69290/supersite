@@ -43,7 +43,6 @@ function buildWatchParterAppMarkup() {
       </div>
       <div id="duelWinnerSimple" style="display:none;">
         <img id="winnerPosterSimple" src="" alt="Affiche gagnant" />
-        <div id="winnerTitleSimple"></div>
         <div id="duelTop5"></div>
         <button id="shareWinnersBtn" class="duel-btn-green" style="margin-top:8px;display:none;">Partager sur Discord</button>
       </div>
